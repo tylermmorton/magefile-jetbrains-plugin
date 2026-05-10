@@ -1,0 +1,45 @@
+<idea-plugin>
+    <id>io.tylermmorton.magefile</id>
+    <name>Magefile</name>
+    <vendor email="tyler@tylermmorton.io" url="https://github.com/tylermmorton/jetbrains-magefile">
+        tylermmorton
+    </vendor>
+
+    <description><![CDATA[
+    Run <a href="https://magefile.org">Mage</a> build targets directly from GoLand.
+
+    <h3>Requirements</h3>
+    <ul>
+      <li>Install <code>mage</code>. See <a href="https://magefile.org/#installation">installation docs</a>.</li>
+      <li>Ensure <code>mage</code> is on your PATH, or configure the executable path in the run configuration.</li>
+    </ul>
+
+    <h3>Usage</h3>
+    <ul>
+      <li>Click the green run arrow in the gutter next to any exported Mage target function.</li>
+      <li>Or open Run/Debug Configurations and add a new <b>Mage</b> configuration manually.</li>
+    </ul>
+
+    <h3>What counts as a Mage target?</h3>
+    <p>Any exported Go function in a file tagged with <code>//go:build mage</code> that returns
+    nothing or <code>error</code>, optionally taking a <code>context.Context</code> as the first
+    parameter. Methods on types that embed <code>mg.Namespace</code> are also supported as
+    namespaced targets (e.g. <code>Build.Deploy</code> → <code>mage build:deploy</code>).</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.go</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <configurationType
+                implementation="io.tylermmorton.magefile.MageRunConfigurationType"/>
+        <runLineMarkerContributor
+                language="go"
+                implementationClass="io.tylermmorton.magefile.MageLineMarkerProvider"/>
+        <programRunner
+                implementation="io.tylermmorton.magefile.MageDebugProgramRunner"/>
+        <notificationGroup id="Mage"
+                displayType="BALLOON"
+                isLogByDefault="true"/>
+    </extensions>
+</idea-plugin>

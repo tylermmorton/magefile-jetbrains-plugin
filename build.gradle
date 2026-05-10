@@ -1,0 +1,58 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
+
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.1.10'
+    id 'org.jetbrains.intellij' version '1.17.4'
+}
+
+group = 'io.tylermmorton.magefile'
+version = '0.1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType(KotlinJvmCompile).configureEach {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        freeCompilerArgs.add("-opt-in=kotlin.RequiresOptIn")
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+}
+
+// See https://github.com/JetBrains/gradle-intellij-plugin/
+// https://jb.gg/intellij-platform-versions
+intellij {
+    // Use GoLand as the base IDE so the bundled Go plugin's PSI classes
+    // (com.goide.psi.*) are available at compile time.
+    version = '2024.1'
+    type = 'GO'
+    updateSinceUntilBuild = false
+    plugins = ['org.jetbrains.plugins.go']
+}
+
+buildSearchableOptions {
+    enabled = false
+}
+
+patchPluginXml {
+    version = project.version
+    sinceBuild = '241'
+}
+
+jar {
+    from('LICENSE')
+}
+
+publishPlugin {
+    token = System.getenv('ORG_GRADLE_PROJECT_intellijPublishToken')
+}
