@@ -228,16 +228,12 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
         }
 
         ApplicationManager.getApplication().invokeLater {
+            // Create a temporary Go Remote config — not registered in the RunManager so it does
+            // not appear as a separate entry under "Go Remote" in the Run/Debug Configurations tree.
             val runManager = RunManager.getInstance(project)
             val configName = "Mage Debug: ${(environment.runProfile as MageRunConfiguration).target}"
-            val existing = runManager.findConfigurationByName(configName)
-
-            val settings =
-                existing
-                    ?: run {
-                        val factory = goRemoteType.configurationFactories[0]
-                        runManager.createConfiguration(configName, factory)
-                    }
+            val factory = goRemoteType.configurationFactories[0]
+            val settings = runManager.createConfiguration(configName, factory)
 
             // Set host/port on the Go Remote config using reflection since the class
             // is in the Go plugin's internal API space
@@ -258,11 +254,6 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
                         "Delve is listening on 127.0.0.1:$port — connect a Go Remote configuration manually.",
                 )
             }
-
-            if (existing == null) {
-                runManager.addConfiguration(settings)
-            }
-            runManager.selectedConfiguration = settings
 
             try {
                 val debugExecutor = DefaultDebugExecutor.getDebugExecutorInstance()
