@@ -12,10 +12,12 @@ import com.intellij.execution.executors.DefaultDebugExecutor
 import com.intellij.execution.runners.ExecutionEnvironment
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder
 import com.intellij.execution.runners.ProgramRunner
+import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import java.net.ServerSocket
@@ -49,10 +51,11 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
         environment: ExecutionEnvironment,
     ) {
         // Validate dlv is present before doing any work
-        if (!isDlvAvailable()) {
+        val dlvExe = findDlvExecutable()
+        if (dlvExe == null) {
             notifyError(
                 project,
-                "Delve (dlv) not found on PATH. Install it with: go install github.com/go-delve/delve/cmd/dlv@latest",
+                "Delve (dlv) not found on PATH or in the GoLand Go plugin. Install it with: go install github.com/go-delve/delve/cmd/dlv@latest",
             )
             return
         }
@@ -72,9 +75,14 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
         // third-party packages (e.g. pjbgf/sha1cd) that exceed the stack limit without inlining.
         // Scoping to "main=" applies the flag only to the generated mage main package, which
         // is sufficient for debugging user-authored magefiles.
+        val goarch = when (System.getProperty("os.arch", "").lowercase()) {
+            "aarch64" -> "arm64"
+            else      -> "amd64"
+        }
         val compileEnv = buildEnvMap(cfg) + mapOf(
             "GOFLAGS" to "-gcflags=main=-N",
             "MAGEFILE_CACHE" to workDir,
+            "GOARCH" to goarch,
         )
         val compileCmd =
             GeneralCommandLine()
@@ -110,7 +118,7 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
         val port = findFreePort()
         val dlvCmd =
             GeneralCommandLine()
-                .withExePath("dlv")
+                .withExePath(dlvExe)
                 .withWorkDirectory(workDir)
                 .withParameters(
                     "exec", tmpBinary,
@@ -198,13 +206,56 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
         return Pair(false, "timed out after ${timeoutMs}ms. output so far: ${lines.joinToString(" | ")}")
     }
 
-    private fun isDlvAvailable(): Boolean {
+    /**
+     * Returns the path to the dlv executable, or null if not found.
+     *
+     * Resolution order:
+     *   1. "dlv" on the system PATH
+     *   2. The dlv binary bundled with GoLand's Go plugin (covers users who
+     *      installed dlv only inside the IDE, not system-wide)
+     */
+    private fun findDlvExecutable(): String? {
+        // 1. Check the system PATH first.
+        if (isCommandAvailable("dlv")) return "dlv"
+
+        // 2. Fall back to the dlv bundled inside the GoLand Go plugin.
+        val bundled = findBundledDlv()
+        if (bundled != null) return bundled
+
+        return null
+    }
+
+    private fun isCommandAvailable(cmd: String): Boolean {
         return try {
-            val result = GeneralCommandLine("dlv", "version").createProcess().waitFor()
-            result == 0
+            GeneralCommandLine(cmd, "version").createProcess().waitFor() == 0
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Looks up the Go plugin's installation directory and resolves the platform-specific
+     * dlv binary that GoLand ships with (e.g. `<go-plugin>/lib/dlv/mac/dlv`).
+     */
+    private fun findBundledDlv(): String? {
+        val plugin = PluginManagerCore.getPlugin(PluginId.getId("org.jetbrains.plugins.go"))
+            ?: return null
+        val pluginPath = plugin.pluginPath ?: return null
+
+        val os = System.getProperty("os.name", "").lowercase()
+        val arch = System.getProperty("os.arch", "").lowercase()
+        val relPath = when {
+            os.contains("mac") && arch == "aarch64" -> "lib/dlv/macarm/dlv"
+            os.contains("mac")                      -> "lib/dlv/mac/dlv"
+            os.contains("win") && arch == "aarch64" -> "lib/dlv/windowsarm/dlv.exe"
+            os.contains("win")                      -> "lib/dlv/windows/dlv.exe"
+            arch == "aarch64"                       -> "lib/dlv/linuxarm/dlv"
+            else                                    -> "lib/dlv/linux/dlv"
+        }
+
+        val dlvFile = pluginPath.resolve(relPath).toFile()
+        if (!dlvFile.exists() || !dlvFile.canExecute()) return null
+        return dlvFile.absolutePath
     }
 
     private fun connectGoRemoteDebugger(
@@ -244,10 +295,13 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
                     .invoke(remoteCfg, "127.0.0.1")
                 remoteCfg.javaClass.getMethod("setPort", Int::class.javaPrimitiveType)
                     .invoke(remoteCfg, port)
-                LOG.info("mage debug: Go Remote configured for 127.0.0.1:$port")
+                remoteCfg.javaClass.getMethod("setFileOutputPath", String::class.java)
+                    .invoke(remoteCfg, binaryPath)
+                LOG.info("mage debug: Go Remote configured for 127.0.0.1:$port binary=$binaryPath")
             } catch (ex: Exception) {
                 // If reflection fails, the existing config values (or defaults) will be used.
                 // Fallback: notify the user with connection details so they can connect manually.
+                LOG.warn("mage debug: Go Remote reflection failed (${ex.javaClass.name}: ${ex.message})", ex)
                 notifyError(
                     project,
                     "Could not configure Go Remote automatically (${ex.javaClass.simpleName}: ${ex.message}). " +
@@ -257,8 +311,11 @@ class MageDebugProgramRunner : ProgramRunner<RunnerSettings> {
 
             try {
                 val debugExecutor = DefaultDebugExecutor.getDebugExecutorInstance()
+                LOG.info("mage debug: calling buildAndExecute for Go Remote on port $port")
                 ExecutionEnvironmentBuilder.create(debugExecutor, settings).buildAndExecute()
+                LOG.info("mage debug: buildAndExecute returned")
             } catch (ex: ExecutionException) {
+                LOG.warn("mage debug: buildAndExecute failed", ex)
                 notifyError(project, "Failed to launch Go Remote debugger: ${ex.message}")
             }
         }
