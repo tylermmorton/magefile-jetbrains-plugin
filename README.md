@@ -1,4 +1,4 @@
-# jetbrains-magefile
+# magefile-jetbrains-plugin
 
 A GoLand plugin that integrates [Mage](https://magefile.org) build targets directly into the IDE. Run and debug Mage targets from the editor gutter or the Run/Debug Configurations window — no terminal required.
 
