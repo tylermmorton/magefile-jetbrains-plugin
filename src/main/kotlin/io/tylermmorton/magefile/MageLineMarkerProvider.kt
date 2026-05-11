@@ -123,7 +123,7 @@ class MageLineMarkerProvider : RunLineMarkerContributor() {
         private val target: String,
         private val project: Project,
         private val magefileDir: String,
-    ) : AnAction("Run Mage: $target") {
+    ) : AnAction("Run Mage: $target", "Run Mage target: $target", AllIcons.Actions.Execute) {
 
         override fun actionPerformed(e: AnActionEvent) {
             val settings = findOrCreateConfig(target, project, magefileDir)
