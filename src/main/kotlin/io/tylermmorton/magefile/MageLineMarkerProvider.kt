@@ -95,8 +95,9 @@ class MageLineMarkerProvider : RunLineMarkerContributor() {
                 else -> return false
             } ?: return true // no signature means func() — valid
 
-        val result = signature.resultType ?: return true // no return — valid
-        return result.text.trim() == "error"
+        val result = signature.result ?: return true // no return clause — valid
+        val resultText = result.text.trim().removePrefix("(").removeSuffix(")").trim()
+        return resultText.isEmpty() || resultText == "error"
     }
 
     /**
