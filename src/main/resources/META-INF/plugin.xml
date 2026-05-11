@@ -41,5 +41,8 @@
         <notificationGroup id="Mage"
                 displayType="BALLOON"
                 isLogByDefault="true"/>
+        <lang.inspectionSuppressor
+                language="go"
+                implementationClass="io.tylermmorton.magefile.MageInspectionSuppressor"/>
     </extensions>
 </idea-plugin>
